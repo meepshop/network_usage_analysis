@@ -1,0 +1,15 @@
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: cm-network_usage_analysis
+  namespace: default
+data:
+  postgres.host: localhost
+  postgres.user: meepshop-api
+  postgres.password: 4JMgT6MzuoX4
+  postgres.stage.host: 35.185.157.74
+  postgres.stage.user: postgres
+  postgres.stage.password: 8cyt5fsbINl95Num
+  gcloud.project.id: instant-matter-785
+  gcloud.credentials: /credentials/credentials.json
+  gcloud.bucket: network_usage
