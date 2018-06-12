@@ -11,6 +11,7 @@ import (
 
 	"cloud.google.com/go/storage"
 	"github.com/meepshop/network_usage_analysis/connection"
+	"google.golang.org/api/iterator"
 )
 
 var conn *connection.Connection
@@ -37,49 +38,38 @@ func Analysis() {
 	defer client.Close()
 	bucket = client.Bucket("network_usage")
 
-	var lastSuccFile *time.Time
-	err = conn.Pg.QueryRow("SELECT MAX(file_datetime) FROM throughput_record WHERE success = true").Scan(&lastSuccFile)
+	var lastSuccHour *time.Time
+	err = conn.Pg.QueryRow("SELECT MAX(file_datetime) FROM throughput_record WHERE success = true").Scan(&lastSuccHour)
 	if err != nil {
 		log.Fatalf("Analysis.Pg.QueryRow() err: %+v", err)
-	} else if lastSuccFile == nil {
-		// storage的資料最早從2018-01-22 05:00:00開始
-		t, _ := time.Parse("2006-01-02 15:04:05", "2018-01-22 04:00:00")
-		lastSuccFile = &t
+	} else if lastSuccHour == nil {
+		// storage的資料最早從2018-05-25 00:00:00開始
+		t, _ := time.Parse("2006-01-02 15:04:05", "2018-05-24 23:00:00")
+		lastSuccHour = &t
 	}
 
-	curExecFile := *lastSuccFile
+	curExecHour := *lastSuccHour
 	for {
 		execTime := time.Now()
-		curExecFile = curExecFile.Add(time.Hour * time.Duration(1))
+		curExecHour = curExecHour.Add(time.Hour * time.Duration(1))
 
-		log.Println("curExecFile:", curExecFile.Format("2006-01-02 15:04:05"))
+		log.Println("curExecHour:", curExecHour.Format("2006-01-02 15:04:05"))
 
-		_, err := conn.Pg.Exec("INSERT INTO throughput_record(file_datetime, exec_time) VALUES ($1, $2)", curExecFile, execTime)
+		_, err := conn.Pg.Exec("INSERT INTO throughput_record(file_datetime, exec_time) VALUES ($1, $2)", curExecHour, execTime)
 		if err != nil {
 			log.Fatalf("Analysis.Pg.INSERT() err: %+v", err)
 		}
 
-		if err := procHourlyData(execTime, curExecFile); err != nil {
+		if err := procHourlyData(execTime, curExecHour); err != nil {
 			break
 		}
+
+		// TEST
+		// break
 	}
 }
 
-func procHourlyData(execTime, curExecFile time.Time) error {
-
-	obj := bucket.Object(curExecFile.Format("requests/2006/01/02/15:00:00_15") + ":59:59_S0.json")
-	_, err := obj.Attrs(conn.Ctx)
-	if err != nil {
-		log.Println("no file:", curExecFile.Format("requests/2006/01/02/15:00:00_15")+":59:59_S0.json")
-		return err
-	}
-
-	r, err := obj.NewReader(conn.Ctx)
-	if err != nil {
-		log.Printf("procHourlyData.obj.NewReader() err: %+v", err)
-		return err
-	}
-	defer r.Close()
+func procHourlyData(execTime, curExecHour time.Time) error {
 
 	tx, err := conn.Pg.Begin()
 	if err != nil {
@@ -89,13 +79,13 @@ func procHourlyData(execTime, curExecFile time.Time) error {
 	defer tx.Rollback()
 
 	// 執行前刪除原有資料
-	conn.PgStage.Exec("DELETE FROM throughput WHERE utc = $1", curExecFile)
-	_, err = tx.Exec("DELETE FROM throughput WHERE utc = $1", curExecFile)
+	conn.PgStage.Exec("DELETE FROM throughput WHERE utc = $1", curExecHour)
+	_, err = tx.Exec("DELETE FROM throughput WHERE utc = $1", curExecHour)
 	if err != nil {
 		log.Printf("procHourlyData.Pg.Delete() err: %+v", err)
 		return err
 	}
-	_, err = tx.Exec("DELETE FROM throughput_old WHERE utc = $1", curExecFile)
+	_, err = tx.Exec("DELETE FROM throughput_old WHERE utc = $1", curExecHour)
 	if err != nil {
 		log.Printf("procHourlyData.Pg.Delete() err: %+v", err)
 		return err
@@ -106,13 +96,73 @@ func procHourlyData(execTime, curExecFile time.Time) error {
 		"old": map[string]ThroughputItem{},
 	}
 
+	// 拿該小時的所有檔案
+	objs := bucket.Objects(conn.Ctx, &storage.Query{
+		Prefix: curExecHour.Format("requests/2006/01/02/15:00:00_15:"),
+	})
+
+	for {
+		attrs, err := objs.Next()
+		if err == iterator.Done {
+			break
+		} else if err != nil {
+			log.Printf("procHourlyData.objs.Next() err: %+v", err)
+			return err
+		}
+
+		//TEST
+		// log.Println(attrs.Name)
+
+		total, err = analysisLogFile(attrs.Name, total)
+		if err != nil {
+			return err
+		}
+
+		//TEST
+		// log.Println(len(total["old"]))
+	}
+
+	// 寫入DB
+	if err := batchInsert(tx, curExecHour, total); err != nil {
+		log.Printf("Analysis.Pg.UPSERT() err: %+v", err)
+		return err
+	}
+
+	// 更新記錄為成功
+	_, err = tx.Exec("UPDATE throughput_record SET success = true WHERE file_datetime = $1 AND exec_time = $2", curExecHour, execTime)
+	if err != nil {
+		log.Printf("procHourlyData.tx.Update() err: %+v", err)
+		return err
+	}
+
+	tx.Commit()
+	return nil
+}
+
+func analysisLogFile(fileName string, total map[string]map[string]ThroughputItem) (map[string]map[string]ThroughputItem, error) {
+
+	obj := bucket.Object(fileName)
+	_, err := obj.Attrs(conn.Ctx)
+	if err != nil {
+		log.Println("no file:", fileName)
+		return total, err
+	}
+
+	r, err := obj.NewReader(conn.Ctx)
+	if err != nil {
+		log.Printf("analysisLogFile.obj.NewReader() err: %+v", err)
+		return total, err
+	}
+	defer r.Close()
+
 	// 逐行分析檔案
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
+
 		var rc *Record
 		if err := json.Unmarshal([]byte(scanner.Text()), &rc); err != nil {
-			log.Printf("procHourlyData.json.Unmarshal() err: %+v", err)
-			return err
+			log.Printf("analysisLogFile.json.Unmarshal() err: %+v", err)
+			return total, err
 		}
 
 		ti, err := rc.ParseToThroughputItem()
@@ -137,25 +187,11 @@ func procHourlyData(execTime, curExecFile time.Time) error {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		log.Printf("procHourlyData.scanner err: %+v", err)
-		return err
+		log.Printf("analysisLogFile.scanner err: %+v", err)
+		return total, err
 	}
 
-	// 寫入DB
-	if err := batchInsert(tx, curExecFile, total); err != nil {
-		log.Fatalf("Analysis.Pg.UPSERT() err: %+v", err)
-		return err
-	}
-
-	// 更新記錄為成功
-	_, err = tx.Exec("UPDATE throughput_record SET success = true WHERE file_datetime = $1 AND exec_time = $2", curExecFile, execTime)
-	if err != nil {
-		log.Printf("procHourlyData.tx.Update() err: %+v", err)
-		return err
-	}
-
-	tx.Commit()
-	return nil
+	return total, nil
 }
 
 func batchInsert(tx *sql.Tx, utc time.Time, total map[string]map[string]ThroughputItem) error {

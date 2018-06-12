@@ -101,8 +101,6 @@ var regexps = map[string][]string{
 
 func (r *Record) ParseToThroughputItem() (ThroughputItem, error) {
 
-	ti := ThroughputItem{}
-
 	system := ""
 	url := strings.Replace(r.HTTPRequest.RequestURL, "%2F", "/", -1)
 	urlByte := []byte(url)
@@ -117,6 +115,7 @@ systemCheckLoop:
 		}
 	}
 
+	ti := ThroughputItem{}
 	if system == "old" {
 		s := strings.Split(url, "/")
 		ti.cname = s[5]
@@ -124,6 +123,7 @@ systemCheckLoop:
 		s := strings.Split(url, "/")
 		ti.storeid = s[4]
 	} else {
+		// TEST
 		// log.Println(url)
 		return ti, errors.New("ParseToThroughputItem RequestURL not match. URL:" + r.HTTPRequest.RequestURL)
 	}
