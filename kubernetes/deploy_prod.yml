@@ -1,0 +1,101 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: network_usage_analysis
+  labels:
+    app: network_usage_analysis
+spec:
+  replicas: 1 # tells deployment to run 2 pods matching the template
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  template: # create pods using pod definition in this template
+    metadata:
+      # unlike pod-nginx.yaml, the name is not included in the meta data as a unique name is
+      # generated from the deployment name
+      labels:
+        app: network_usage_analysis
+    spec:
+      restartPolicy: Always
+      containers:
+      - name: cloudsql-proxy
+        image: gcr.io/cloudsql-docker/gce-proxy:1.09
+        command: ["/cloud_sql_proxy", "--dir=/cloudsql",
+          "-instances=instant-matter-785:asia-east1:meepshop-prod=tcp:5432",
+          "-credential_file=/secrets/cloudsql/credentials.json"]
+        volumeMounts:
+          - name: cloudsql-instance-credentials
+            mountPath: /secrets/cloudsql
+            readOnly: true
+          - name: ssl-certs
+            mountPath: /etc/ssql/certs
+          - name: cloudsql
+            mountPath: /cloudsql
+      - name: network_usage_analysis
+        image: asia.gcr.io/instant-matter-785/network_usage_analysis:${version}
+        imagePullPolicy: Always
+        env:
+        - name: POSTGRES_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: cm-network_usage_analysis
+              key: postgres.host
+        - name: POSTGRES_USER
+          valueFrom:
+            configMapKeyRef:
+              name: cm-network_usage_analysis
+              key: postgres.user
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: cm-network_usage_analysis
+              key: postgres.password
+        - name: POSTGRES_STAGE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: cm-network_usage_analysis
+              key: postgres.stage.host
+        - name: POSTGRES_STAGE_USER
+          valueFrom:
+            configMapKeyRef:
+              name: cm-network_usage_analysis
+              key: postgres.stage.user
+        - name: POSTGRES_STAGE_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: cm-network_usage_analysis
+              key: postgres.stage.password
+        - name: GCLOUD_PROJECT_ID
+          valueFrom:
+            configMapKeyRef:
+              name: cm-network_usage_analysis
+              key: gcloud.project.id
+        - name: GCLOUD_BUCKET
+          valueFrom:
+            configMapKeyRef:
+              name: cm-network_usage_analysis
+              key: gcloud.bucket
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          valueFrom:
+            configMapKeyRef:
+              name: cm-network_usage_analysis
+              key: gcloud.credentials
+        volumeMounts:
+          - name: "gcp-network_usage_analysis"
+            mountPath: "/credentials/"
+            readOnly: true
+      volumes:
+        - name: "gcp-network_usage_analysis"
+          secret:
+            secretName: "gcp-network_usage_analysis"
+        - name: cloudsql-instance-credentials
+          secret:
+            secretName: cloudsql-instance-credentials
+        - name: ssl-certs
+          hostPath:
+            path: /etc/ssl/certs
+        - name: cloudsql
+          emptyDir:

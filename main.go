@@ -14,7 +14,7 @@
 
 package main
 
-import "github.com/nukr/network_usage_analysis/cmd"
+import "github.com/meepshop/network_usage_analysis/cmd"
 
 func main() {
 	cmd.Execute()
