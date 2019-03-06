@@ -4,10 +4,10 @@ metadata:
   name: cm-network_usage_analysis
   namespace: default
 data:
-  postgres.proxy: instant-matter-785:asia-east1:meepshop-prod=tcp:5432
+  postgres.proxy: instant-matter-785:asia-east1:meepshop-test=tcp:5432
   postgres.host: localhost
-  postgres.user: meepshop-api
-  postgres.password: 4JMgT6MzuoX4
+  postgres.user: postgres
+  postgres.password: 8cyt5fsbINl95Num
   gcloud.project.id: instant-matter-785
   gcloud.credentials: /credentials/credentials.json
   gcloud.bucket: network_usage

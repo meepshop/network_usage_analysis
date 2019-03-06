@@ -1,0 +1,116 @@
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: network_usage_analysis
+spec:
+  schedule: "@hourly"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          volumes:
+            - name: cloudsql-instance-credentials
+              secret:
+                secretName: cloudsql-instance-credentials
+            - name: ssl-certs
+              hostPath:
+                path: /etc/ssl/certs
+            - name: cloudsql
+              emptyDir: {}
+            - name: exit-signals
+              emptyDir: {}
+          containers:
+          - name: network_usage_analysis
+            image: network_usage_analysis:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              ./main analysis
+              pid="$!"
+              wait $pid
+              touch /opt/exit-signals/SIGTERM
+            volumeMounts:
+              - name: exit-signals
+                mountPath: /opt/exit-signals
+            env:
+              - name: POSTGRES_HOST
+                valueFrom:
+                  configMapKeyRef:
+                    name: cm-network_usage_analysis
+                    key: postgres.host
+              - name: POSTGRES_USER
+                valueFrom:
+                  configMapKeyRef:
+                    name: cm-network_usage_analysis
+                    key: postgres.user
+              - name: POSTGRES_PASSWORD
+                valueFrom:
+                  configMapKeyRef:
+                    name: cm-network_usage_analysis
+                    key: postgres.password
+              - name: GCLOUD_PROJECT_ID
+                valueFrom:
+                  configMapKeyRef:
+                    name: cm-network_usage_analysis
+                    key: gcloud.project.id
+              - name: GCLOUD_BUCKET
+                valueFrom:
+                  configMapKeyRef:
+                    name: cm-network_usage_analysis
+                    key: gcloud.bucket
+              - name: GOOGLE_APPLICATION_CREDENTIALS
+                valueFrom:
+                  configMapKeyRef:
+                    name: cm-network_usage_analysis
+                    key: gcloud.credentials
+              volumeMounts:
+                - name: "gcp-network_usage_analysis"
+                  mountPath: "/credentials/"
+                  readOnly: true
+          - name: cloudsql-proxy
+            image: gcr.io/cloudsql-docker/gce-proxy:1.11
+            command:
+              - /bin/sh
+              - -c
+              - |
+                /cloud_sql_proxy \
+                  --dir=/cloudsql \
+                  -instances=$INSTANCES \
+                  -credential_file=/secrets/cloudsql/credentials.json&
+                  PID="$!"
+                  until [ -f /opt/exit-signals/SIGTERM ]; do sleep 2; done;
+                  kill $PID
+            env:
+              - name: INSTANCES
+                valueFrom:
+                  configMapKeyRef:
+                    name: cm-network_usage_analysis
+                    key: postgres.proxy
+            volumeMounts:
+              - name: cloudsql-instance-credentials
+                mountPath: /secrets/cloudsql
+                readOnly: true
+              - name: ssl-certs
+                mountPath: /etc/ssql/certs
+              - name: cloudsql
+                mountPath: /cloudsql
+              - name: exit-signals
+                mountPath: /opt/exit-signals
+                readOnly: true
+          volumes:
+            - name: "gcp-network_usage_analysis"
+              secret:
+                secretName: "gcp-network_usage_analysis"
+            - name: cloudsql-instance-credentials
+              secret:
+                secretName: cloudsql-instance-credentials
+            - name: ssl-certs
+              hostPath:
+                path: /etc/ssl/certs
+            - name: cloudsql
+              emptyDir:

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -63,9 +64,6 @@ func Analysis() {
 		if err := procHourlyData(execTime, curExecHour); err != nil {
 			break
 		}
-
-		// TEST
-		// break
 	}
 }
 
@@ -79,7 +77,6 @@ func procHourlyData(execTime, curExecHour time.Time) error {
 	defer tx.Rollback()
 
 	// 執行前刪除原有資料
-	conn.PgStage.Exec("DELETE FROM throughput WHERE utc = $1", curExecHour)
 	_, err = tx.Exec("DELETE FROM throughput WHERE utc = $1", curExecHour)
 	if err != nil {
 		log.Printf("procHourlyData.Pg.Delete() err: %+v", err)
@@ -110,21 +107,19 @@ func procHourlyData(execTime, curExecHour time.Time) error {
 			return err
 		}
 
-		//TEST
-		// log.Println(attrs.Name)
-
 		total, err = analysisLogFile(attrs.Name, total)
 		if err != nil {
 			return err
 		}
+	}
 
-		//TEST
-		// log.Println(len(total["old"]))
+	if len(total["new"]) == 0 && len(total["old"]) == 0 {
+		log.Println(curExecHour, "no any record")
+		return errors.New("no any record")
 	}
 
 	// 寫入DB
 	if err := batchInsert(tx, curExecHour, total); err != nil {
-		log.Printf("Analysis.Pg.UPSERT() err: %+v", err)
 		return err
 	}
 
@@ -202,14 +197,11 @@ func batchInsert(tx *sql.Tx, utc time.Time, total map[string]map[string]Throughp
 		value := fmt.Sprintf("('%s', '%s', %d, %d)", ti.storeid, utc.Format("2006-01-02 15:04:05"), ti.requestsize, ti.responsesize)
 		values = append(values, value)
 	}
-	query = fmt.Sprintf(
-		`INSERT INTO throughput(storeid, utc, requestsize, responsesize) VALUES %s
-			ON CONFLICT (storeid, utc) DO UPDATE SET requestsize = throughput.requestsize + EXCLUDED.requestsize, responsesize = throughput.responsesize + EXCLUDED.responsesize`,
-		strings.Join(values, ","))
+	query = fmt.Sprintf(`INSERT INTO throughput(storeid, utc, requestsize, responsesize) VALUES %s`, strings.Join(values, ","))
 
-	conn.PgStage.Exec(query)
 	_, err := tx.Exec(query)
 	if err != nil {
+		log.Printf("batchInsert.INSERT INTO throughput() err: %+v query: %s", err, query)
 		return err
 	}
 
@@ -218,14 +210,12 @@ func batchInsert(tx *sql.Tx, utc time.Time, total map[string]map[string]Throughp
 		value := fmt.Sprintf("('%s', '%s', %d, %d)", ti.cname, utc.Format("2006-01-02 15:04:05"), ti.requestsize, ti.responsesize)
 		values = append(values, value)
 	}
-	query = fmt.Sprintf(
-		`INSERT INTO throughput_old(cname, utc, requestsize, responsesize) VALUES %s
-			ON CONFLICT (cname, utc) DO UPDATE SET requestsize = throughput_old.requestsize + EXCLUDED.requestsize, responsesize = throughput_old.responsesize + EXCLUDED.responsesize`,
-		strings.Join(values, ","))
+	query = fmt.Sprintf(`INSERT INTO throughput_old(cname, utc, requestsize, responsesize) VALUES %s`, strings.Join(values, ","))
 
 	// conn.PgStage.Exec(query)
 	_, err = tx.Exec(query)
 	if err != nil {
+		log.Printf("batchInsert.INSERT INTO throughput_old() err: %+v query: %s", err, query)
 		return err
 	}
 

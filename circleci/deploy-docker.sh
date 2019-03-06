@@ -11,7 +11,7 @@ set -o pipefail
 # mv /tmp/docker/* /usr/bin -f
 
 # push to gcloud docker registry
-IMAGE=asia.gcr.io/$GCLOUD_PROJECT_ID/sysop
+IMAGE=asia.gcr.io/$GCLOUD_PROJECT_ID/network_usage_analysis
 DOCKERCTX=.
 
 if [[ ! -z "${CIRCLE_TAG}" ]]; then
