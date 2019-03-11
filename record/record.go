@@ -123,8 +123,6 @@ systemCheckLoop:
 		s := strings.Split(url, "/")
 		ti.storeid = s[4]
 	} else {
-		// TEST
-		// log.Println(url)
 		return ti, errors.New("ParseToThroughputItem RequestURL not match. URL:" + r.HTTPRequest.RequestURL)
 	}
 

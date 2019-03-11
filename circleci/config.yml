@@ -29,6 +29,18 @@ jobs:
               chmod +x ./.circleci/deploy-docker.sh
               ./.circleci/deploy-docker.sh
             fi
+  kubernetes_deploy:
+    <<: *defaults
+    steps:
+      - attach_workspace:
+          at: ./
+      - deploy:
+          name: Kubernetes Provision
+          command: |
+            if [[ -z "${HARBORMASTER_BUILD_TARGET_PHID}" && "${CIRCLE_BRANCH}" == "master" ]]; then
+                chmod +x ./.circleci/deploy-kubernetes.sh
+                ./.circleci/deploy-kubernetes.sh
+            fi
 
 workflows:
   version: 2
@@ -44,4 +56,11 @@ workflows:
           filters:
             tags:
               only: /v[0-9]+(\.[0-9]+)*/
+          context: org-global
+      - kubernetes_deploy:
+          requires:
+            - docker_deploy
+          filters:
+            branches:
+              only: master
           context: org-global
