@@ -11,9 +11,8 @@ import (
 )
 
 type Connection struct {
-	Ctx     context.Context
-	Pg      *sql.DB
-	PgStage *sql.DB
+	Ctx context.Context
+	Pg  *sql.DB
 }
 
 func NewConnection() *Connection {
@@ -30,22 +29,11 @@ func NewConnection() *Connection {
 		log.Fatal(err)
 	}
 
-	pgsHost := mustGetenv("POSTGRES_STAGE_HOST")
-	pgsUser := mustGetenv("POSTGRES_STAGE_USER")
-	pgsPwd := mustGetenv("POSTGRES_STAGE_PASSWORD")
-	sDataSource := fmt.Sprintf("postgres://%s:%s@%s:5432/meepshop?sslmode=disable", pgsUser, pgsPwd, pgsHost)
-	pgs, err := sql.Open("postgres", sDataSource)
-	if err != nil {
-		log.Println(sDataSource)
-		log.Fatal(err)
-	}
-
-	return &Connection{ctx, pg, pgs}
+	return &Connection{ctx, pg}
 }
 
 func (c *Connection) Close() {
 	c.Pg.Close()
-	c.PgStage.Close()
 }
 
 func mustGetenv(k string) string {

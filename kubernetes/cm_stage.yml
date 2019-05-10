@@ -5,7 +5,7 @@ metadata:
   namespace: default
 data:
   postgres.host: postgres
-  postgres.user: meepshop-api
+  postgres.user: postgres
   gcloud.project.id: instant-matter-785
   gcloud.credentials: /credentials/credentials.json
   gcloud.bucket: network_usage

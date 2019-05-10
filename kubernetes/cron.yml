@@ -1,0 +1,61 @@
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: network_usage_analysis
+spec:
+  schedule: "@hourly"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: network_usage_analysis
+            image: network_usage_analysis:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              ./main analysis
+            env:
+              - name: POSTGRES_HOST
+                valueFrom:
+                  configMapKeyRef:
+                    name: cm-network_usage_analysis
+                    key: postgres.host
+              - name: POSTGRES_USER
+                valueFrom:
+                  configMapKeyRef:
+                    name: cm-network_usage_analysis
+                    key: postgres.user
+              - name: POSTGRES_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: postgres-credentials
+                    key: password
+              - name: GCLOUD_PROJECT_ID
+                valueFrom:
+                  configMapKeyRef:
+                    name: cm-network_usage_analysis
+                    key: gcloud.project.id
+              - name: GCLOUD_BUCKET
+                valueFrom:
+                  configMapKeyRef:
+                    name: cm-network_usage_analysis
+                    key: gcloud.bucket
+              - name: GOOGLE_APPLICATION_CREDENTIALS
+                valueFrom:
+                  configMapKeyRef:
+                    name: cm-network_usage_analysis
+                    key: gcloud.credentials
+              volumeMounts:
+                - name: "gcp-network_usage_analysis"
+                  mountPath: "/credentials/"
+                  readOnly: true
+          volumes:
+            - name: "gcp-network_usage_analysis"
+              secret:
+                secretName: "gcp-network_usage_analysis"
